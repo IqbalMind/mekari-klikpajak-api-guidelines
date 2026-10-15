@@ -1,0 +1,22 @@
+{
+  "name": "mekari-klikpajak-coretax-nodejs",
+  "version": "1.0.0",
+  "description": "Mekari Klikpajak Coretax (CTAS) Single Tax Invoice Example with HMAC-SHA256 in Node.js",
+  "main": "example.js",
+  "scripts": {
+    "start": "node example.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7"
+  },
+  "keywords": [
+    "mekari",
+    "klikpajak",
+    "coretax",
+    "ctas",
+    "efaktur",
+    "hmac-sha256"
+  ],
+  "author": "Muhamad Iqbal Nurmanditya",
+  "license": "MIT"
+}

@@ -1,0 +1,111 @@
+{
+  "info": {
+    "_postman_id": "4b68428d-d779-4a0b-8d82-9659b867c4ee",
+    "name": "Mekari Klikpajak - CoreTax (CTAS) Single Tax Invoice",
+    "description": "Pre-configured Postman Collection with automated HMAC-SHA256 pre-request script for creating a Single Tax Invoice (Faktur Pajak Keluaran) in Mekari Klikpajak Coretax (CTAS).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://sandbox-api.mekari.com",
+      "type": "string"
+    },
+    {
+      "key": "clientId",
+      "value": "YOUR_MEKARI_CLIENT_ID",
+      "type": "string"
+    },
+    {
+      "key": "clientSecret",
+      "value": "YOUR_MEKARI_CLIENT_SECRET",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const uuid = require('uuid');",
+          "",
+          "const method = pm.request.method;",
+          "const path = pm.request.url.getPath();",
+          "const username = pm.collectionVariables.get('clientId');",
+          "const secret = pm.collectionVariables.get('clientSecret');",
+          "const dateString = new Date().toUTCString();",
+          "",
+          "// 1. Calculate SHA-256 Digest of Body",
+          "const body = pm.request.body ? pm.request.body.toString() : '';",
+          "if (body && body.length > 0) {",
+          "    const bodyHash = CryptoJS.SHA256(body);",
+          "    const bodyDigest = 'SHA-256=' + CryptoJS.enc.Base64.stringify(bodyHash);",
+          "    pm.request.headers.upsert({ key: 'Digest', value: bodyDigest });",
+          "}",
+          "",
+          "// 2. Build Request Line & HMAC Payload",
+          "const requestLine = method + ' ' + path + ' HTTP/1.1';",
+          "const payload = ['date: ' + dateString, requestLine].join('\\n');",
+          "",
+          "// 3. Generate HMAC-SHA256 Signature",
+          "const digest = CryptoJS.HmacSHA256(payload, secret);",
+          "const signature = CryptoJS.enc.Base64.stringify(digest);",
+          "",
+          "// 4. Set Headers",
+          "const authHeader = 'hmac username=\"' + username + '\", algorithm=\"hmac-sha256\", headers=\"date request-line\", signature=\"' + signature + '\"';",
+          "const idempotencyKey = uuid.v4();",
+          "",
+          "pm.request.headers.upsert({ key: 'Authorization', value: authHeader });",
+          "pm.request.headers.upsert({ key: 'Date', value: dateString });",
+          "pm.request.headers.upsert({ key: 'X-Idempotency-Key', value: idempotencyKey });"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Create Single Tax Invoice (Draft)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"client_reference_id\": \"INV-{{$timestamp}}\",\n    \"transaction_detail\": \"04\",\n    \"additional_trx_detail\": \"00\",\n    \"substitution_flag\": false,\n    \"substituted_tax_invoice_id\": null,\n    \"tax_invoice_number_term\": \"\",\n    \"description\": \"Invoice Penjualan Barang & Jasa IT\",\n    \"document_date\": \"{{$isoTimestamp}}\".split('T')[0],\n    \"reference\": \"REF-{{$timestamp}}\",\n    \"total_tax_base\": 10000000,\n    \"total_other_tax_base\": 10000000,\n    \"total_vat\": 1200000,\n    \"total_stlg\": 0,\n    \"total_price\": 10000000,\n    \"total_discount\": 0,\n    \"downpayment_flag\": 0,\n    \"downpayment_stlg\": 0,\n    \"downpayment_tax_base\": 0,\n    \"downpayment_other_tax_base\": 0,\n    \"downpayment_vat\": 0,\n    \"customer\": {\n        \"npwp\": \"1091031210912281\",\n        \"id_type\": \"NPWP\",\n        \"country_code\": \"IDN\",\n        \"other_id\": \"\",\n        \"name\": \"PT Pembeli Sejahtera\",\n        \"address\": \"Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan\",\n        \"nitku\": \"000000\",\n        \"email\": \"finance@pembelisejahtera.co.id\"\n    },\n    \"items\": [\n        {\n            \"goods_service\": \"GOODS\",\n            \"goods_service_code\": \"000000\",\n            \"goods_service_name\": \"Paket Server Rack 1U\",\n            \"unit_price\": 10000000,\n            \"unit_measurement\": \"UNIT\",\n            \"selling_price\": 10000000,\n            \"quantity\": 1,\n            \"discount\": 0,\n            \"tax_base\": 10000000,\n            \"other_tax_base\": 10000000,\n            \"vat\": 1200000,\n            \"stlg_rate\": 0,\n            \"stlg\": 0\n        }\n    ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/v2/klikpajak/v2/efaktur/out?auto_approval=false&auto_calculate=true",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "v2",
+            "klikpajak",
+            "v2",
+            "efaktur",
+            "out"
+          ],
+          "query": [
+            {
+              "key": "auto_approval",
+              "value": "false",
+              "description": "true = Submit to DJP, false = Save as draft"
+            },
+            {
+              "key": "auto_calculate",
+              "value": "true",
+              "description": "true = Klikpajak calculates tax totals automatically"
+            }
+          ]
+        },
+        "description": "Creates a Single Tax Invoice (Faktur Pajak Keluaran) in Klikpajak Coretax (CTAS)."
+      },
+      "response": []
+    }
+  ]
+}
