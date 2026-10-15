@@ -248,16 +248,26 @@ Under Indonesia's **CoreTax (CTAS / V2)** tax system, sales tax invoices (Faktur
 
 ## 💻 Available Implementations
 
-Explore the standalone examples in your language of choice:
+Explore the standalone examples and integration templates for your stack:
 
-| Implementation | Folder | Prerequisites | Description |
+### 🏢 Enterprise ERP Integrations
+| System | Directory | Technology | Description |
 |---|---|---|---|
+| **Oracle NetSuite** | [`netsuite/`](file:///Users/mekari/Work/hmac/klikpajak/netsuite) | SuiteScript 2.1 | Native `N/crypto` HMAC module and Invoice User Event script for automated e-Faktur creation. |
+| **SAP Business One** | [`sap-business-one/`](file:///Users/mekari/Work/hmac/klikpajak/sap-business-one) | C# / Service Layer | End-to-end mapping from SAP B1 `OINV`/`INV1` to CoreTax e-Faktur with replacement handling. |
+| **Oracle Fusion ERP** | [`oracle-fusion/`](file:///Users/mekari/Work/hmac/klikpajak/oracle-fusion) | OIC / JavaScript | Oracle Integration Cloud library function and Receivables (AR) integration guide. |
+
+### ⚙️ Programming Languages & Frameworks
+| Language / Tool | Directory | Prerequisites | Description |
+|---|---|---|---|
+| **Java** | [`java/`](file:///Users/mekari/Work/hmac/klikpajak/java) | Java 11+ | Zero external dependencies (`java.net.http.HttpClient`, `javax.crypto.Mac`). |
+| **.NET / C#** | [`dotnet/`](file:///Users/mekari/Work/hmac/klikpajak/dotnet) | .NET 8.0+ | Modern C# client library with DI support and replacement suffixing. |
 | **Node.js** | [`nodejs/`](file:///Users/mekari/Work/hmac/klikpajak/nodejs) | Node.js v18+ | Zero external dependencies (uses native `fetch` & `crypto`). |
-| **Python** | [`python/`](file:///Users/mekari/Work/hmac/klikpajak/python) | Python 3.8+ | Zero external dependencies (uses `urllib`, `hmac`, `hashlib`). |
+| **Python** | [`python/`](file:///Users/mekari/Work/hmac/klikpajak/python) | Python 3.8+ | Zero external dependencies (`urllib`, `hmac`, `hashlib`, `uuid`). |
 | **PHP** | [`php/`](file:///Users/mekari/Work/hmac/klikpajak/php) | PHP 7.4+ / 8.x | Native PHP with `curl` and `hash_hmac`. |
 | **Go** | [`go/`](file:///Users/mekari/Work/hmac/klikpajak/go) | Go 1.20+ | Standard library (`net/http`, `crypto/hmac`). |
 | **Bash / cURL** | [`bash/`](file:///Users/mekari/Work/hmac/klikpajak/bash) | `curl`, `openssl` | Shell script with automated HMAC header creation. |
-| **Postman** | [`postman/`](file:///Users/mekari/Work/hmac/klikpajak/postman) | Postman App | Collection with pre-request script for one-click testing. |
+| **Postman** | [`postman/`](file:///Users/mekari/Work/hmac/klikpajak/postman) | Postman App | Collection with pre-request script for one-click testing (Normal & Pengganti). |
 
 ---
 
