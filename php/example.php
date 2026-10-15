@@ -31,8 +31,15 @@ function generateUuidV4(): string {
 
 /**
  * Generate HMAC-SHA256 authentication and integrity headers for Mekari Klikpajak API.
+ * 
+ * @param string $method HTTP method
+ * @param string $path URL path without query params
+ * @param string $bodyString Raw JSON body string
+ * @param string $clientId Mekari Client ID
+ * @param string $clientSecret Mekari Client Secret
+ * @param string|null $customIdempotencyKey Optional custom reference (e.g. invoice no) to prevent duplicate creation
  */
-function generateHmacHeaders(string $method, string $path, string $bodyString, string $clientId, string $clientSecret): array {
+function generateHmacHeaders(string $method, string $path, string $bodyString, string $clientId, string $clientSecret, ?string $customIdempotencyKey = null): array {
     // 1. Date header in RFC 1123 / UTC format
     $dateString = gmdate('D, d M Y H:i:s T');
 
@@ -53,12 +60,15 @@ function generateHmacHeaders(string $method, string $path, string $bodyString, s
         $signature
     );
 
-    // 6. Build headers array
+    // 6. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
+    $idempotencyKey = $customIdempotencyKey ?: generateUuidV4();
+
+    // 7. Build headers array
     $headers = [
         'Authorization: ' . $authHeader,
         'Date: ' . $dateString,
         'Content-Type: application/json',
-        'X-Idempotency-Key: ' . generateUuidV4()
+        'X-Idempotency-Key: ' . $idempotencyKey
     ];
 
     // 7. Digest header (SHA-256 hash of the request body)

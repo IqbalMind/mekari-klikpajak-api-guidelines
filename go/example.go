@@ -31,7 +31,7 @@ func generateUUIDv4() string {
 }
 
 // Generate HMAC-SHA256 authentication and integrity headers
-func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, clientSecret string) map[string]string {
+func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, clientSecret, customIdempotencyKey string) map[string]string {
 	// 1. Date header in RFC 1123 / UTC format with GMT zone (RFC 7231 / HTTP standard)
 	dateString := time.Now().UTC().Format(http.TimeFormat)
 
@@ -49,11 +49,17 @@ func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, client
 	// 5. Authorization header
 	authHeader := fmt.Sprintf(`hmac username="%s", algorithm="hmac-sha256", headers="date request-line", signature="%s"`, clientID, signature)
 
+	// 6. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
+	idempotencyKey := customIdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = generateUUIDv4()
+	}
+
 	headers := map[string]string{
 		"Authorization":     authHeader,
 		"Date":              dateString,
 		"Content-Type":      "application/json",
-		"X-Idempotency-Key": generateUUIDv4(),
+		"X-Idempotency-Key": idempotencyKey,
 	}
 
 	// 6. Digest header (SHA-256 hash of body)
@@ -144,7 +150,8 @@ func main() {
 		return
 	}
 
-	headers := generateHmacHeaders("POST", path, bodyBytes, clientID, clientSecret)
+	// Pass empty string for auto-generated UUID v4, or pass custom invoice ID (e.g. "INV-001") to prevent duplicate creation
+	headers := generateHmacHeaders("POST", path, bodyBytes, clientID, clientSecret, "")
 
 	fmt.Println("==================================================================")
 	fmt.Println("Mekari Klikpajak CoreTax: Create Single Tax Invoice (Draft)")

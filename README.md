@@ -91,6 +91,61 @@ Content-Type: application/json
 6. **Freshness Guarantee**:
    - The signature is one-time use per request. Do not reuse old signatures, or the gateway will reject them with `401 Unauthorized`.
 
+### 🔑 X-Idempotency-Key (Preventing Duplicate Invoice Creation)
+
+The `X-Idempotency-Key` header is required for create/write operations to guarantee idempotency and avoid duplicate entries:
+
+* **Auto-generated (UUID v4)**: Recommended for testing or non-mutating requests.
+* **Custom Reference (e.g., your Internal Invoice Number / Order ID)**: Strongly recommended for production invoice creation (e.g. `ABC0001` or `INV-2026-0001`).
+
+> 💡 **Core Difference**:
+> * **HMAC Signature** must be freshly computed on **every single request**.
+> * **X-Idempotency-Key** stays the same for a given transaction to **prevent duplicate creation**.
+
+If you accidentally retry or resend a request with the **same** `X-Idempotency-Key`, Klikpajak will recognize it and safely return:
+```json
+{
+  "code": "1903",
+  "message": "Your request has already completed"
+}
+```
+
+### 📜 Official Postman Pre-request Script
+
+Here is the reference script from the official documentation and slides that sets all headers including `X-Idempotency-Key`:
+
+```javascript
+const uuid = require('uuid');
+
+var method = pm.request.method;
+var path = pm.request.url.getPath();
+var username = pm.variables.get("mekariApiClientId");
+var secret = pm.variables.get("mekariApiClientSecret");
+var dateString = new Date().toUTCString();
+
+var body = pm.request.body ? pm.request.body.toString() : '';
+var bodyDigest = '';
+var bodyLen = Object.keys(body).length;
+if (bodyLen > 0) {
+    var bodyHash = CryptoJS.SHA256(body);
+    bodyDigest = 'SHA-256=' + CryptoJS.enc.Base64.stringify(bodyHash);
+}
+
+var requestLine = method + ' ' + path + ' HTTP/1.1';
+var payload = ['date: ' + dateString, requestLine].join("\n");
+var digest = CryptoJS.HmacSHA256(payload, secret);
+var signature = CryptoJS.enc.Base64.stringify(digest);
+var header = 'hmac username="' + username + '", algorithm="hmac-sha256", headers="date request-line", signature="' + signature + '"';
+
+// Generate UUID for idempotency or set custom invoice number
+var idempotencyKey = uuid.v4();
+
+postman.setEnvironmentVariable('hmacAuthHeader', header);
+postman.setEnvironmentVariable('hmacDate', dateString);
+postman.setEnvironmentVariable('hmacDigest', bodyDigest);
+postman.setEnvironmentVariable('idempotencyKey', idempotencyKey);
+```
+
 ---
 
 ## 📑 CoreTax (CTAS) Single Tax Invoice Specification

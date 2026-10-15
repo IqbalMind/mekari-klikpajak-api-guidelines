@@ -100,8 +100,10 @@ AUTH_HEADER="hmac username=\"${CLIENT_ID}\", algorithm=\"hmac-sha256\", headers=
 BODY_HASH=$(printf "%s" "${BODY}" | openssl dgst -sha256 -binary | base64)
 DIGEST_HEADER="SHA-256=${BODY_HASH}"
 
-# Idempotency Key (UUID v4)
-if command -v uuidgen >/dev/null 2>&1; then
+# Idempotency Key (Set CUSTOM_IDEMPOTENCY_KEY to prevent duplicate creation, or default to UUID v4)
+if [ -n "${CUSTOM_IDEMPOTENCY_KEY:-}" ]; then
+    IDEMPOTENCY_KEY="${CUSTOM_IDEMPOTENCY_KEY}"
+elif command -v uuidgen >/dev/null 2>&1; then
     IDEMPOTENCY_KEY=$(uuidgen | tr '[:upper:]' '[:lower:]')
 else
     IDEMPOTENCY_KEY=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "inv-${TIMESTAMP}")

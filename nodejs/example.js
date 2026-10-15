@@ -28,9 +28,10 @@ const BASE_URL = process.env.MEKARI_BASE_URL || "https://sandbox-api.mekari.com"
  * @param {string} bodyString - Raw JSON string of the request body (empty string for GET)
  * @param {string} clientId - Mekari API Client ID
  * @param {string} clientSecret - Mekari API Client Secret
+ * @param {string} [customIdempotencyKey] - Optional custom reference (e.g. invoice no) to prevent duplicate creation
  * @returns {object} Object containing all required headers
  */
-function generateHmacHeaders(method, path, bodyString, clientId, clientSecret) {
+function generateHmacHeaders(method, path, bodyString, clientId, clientSecret, customIdempotencyKey = null) {
     // 1. Date header in RFC 1123 / UTC format (e.g., 'Thu, 15 Oct 2026 06:15:00 GMT')
     const dateString = new Date().toUTCString();
 
@@ -55,8 +56,9 @@ function generateHmacHeaders(method, path, bodyString, clientId, clientSecret) {
         digestHeader = `SHA-256=${bodyHash}`;
     }
 
-    // 7. Idempotency Key (UUID v4)
-    const idempotencyKey = crypto.randomUUID();
+    // 7. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
+    // Using your unique invoice ID prevents accidental duplicate creation on the server side
+    const idempotencyKey = customIdempotencyKey || crypto.randomUUID();
 
     const headers = {
         'Authorization': authHeader,

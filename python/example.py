@@ -30,7 +30,7 @@ CLIENT_SECRET = os.getenv("MEKARI_CLIENT_SECRET", "YOUR_MEKARI_CLIENT_SECRET")
 BASE_URL = os.getenv("MEKARI_BASE_URL", "https://sandbox-api.mekari.com")
 
 
-def generate_hmac_headers(method: str, path: str, body_string: str, client_id: str, client_secret: str) -> dict:
+def generate_hmac_headers(method: str, path: str, body_string: str, client_id: str, client_secret: str, custom_idempotency_key: str = None) -> dict:
     """
     Generate HMAC-SHA256 authentication and integrity headers for Mekari Klikpajak API.
     
@@ -39,6 +39,7 @@ def generate_hmac_headers(method: str, path: str, body_string: str, client_id: s
     :param body_string: Raw JSON string of request body (empty string if no body)
     :param client_id: Mekari API Client ID
     :param client_secret: Mekari API Client Secret
+    :param custom_idempotency_key: Optional custom reference (e.g. invoice no) to prevent duplicate creation
     :return: Dictionary containing all required HTTP headers
     """
     # 1. Date in RFC 1123 format (e.g., 'Thu, 15 Oct 2026 06:15:00 GMT')
@@ -68,12 +69,14 @@ def generate_hmac_headers(method: str, path: str, body_string: str, client_id: s
         f'signature="{signature_b64}"'
     )
 
-    # 6. Digest header (SHA-256 hash of body)
+    # 6. X-Idempotency-Key: Use custom invoice ID or auto-generated UUID v4
+    idempotency_key = custom_idempotency_key or str(uuid.uuid4())
+
     headers = {
         "Authorization": auth_header,
         "Date": date_string,
         "Content-Type": "application/json",
-        "X-Idempotency-Key": str(uuid.uuid4())
+        "X-Idempotency-Key": idempotency_key
     }
 
     if body_string:

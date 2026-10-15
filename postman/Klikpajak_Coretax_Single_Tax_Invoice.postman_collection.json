@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "4b68428d-d779-4a0b-8d82-9659b867c4ee",
     "name": "Mekari Klikpajak - CoreTax (CTAS) Single Tax Invoice",
-    "description": "Pre-configured Postman Collection with automated HMAC-SHA256 pre-request script for creating a Single Tax Invoice (Faktur Pajak Keluaran) in Mekari Klikpajak Coretax (CTAS).",
+    "description": "Pre-configured Postman Collection with automated HMAC-SHA256 pre-request script and X-Idempotency-Key for creating a Single Tax Invoice (Faktur Pajak Keluaran) in Mekari Klikpajak Coretax (CTAS).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -12,12 +12,12 @@
       "type": "string"
     },
     {
-      "key": "clientId",
+      "key": "mekariApiClientId",
       "value": "YOUR_MEKARI_CLIENT_ID",
       "type": "string"
     },
     {
-      "key": "clientSecret",
+      "key": "mekariApiClientSecret",
       "value": "YOUR_MEKARI_CLIENT_SECRET",
       "type": "string"
     }
@@ -30,35 +30,50 @@
         "exec": [
           "const uuid = require('uuid');",
           "",
-          "const method = pm.request.method;",
-          "const path = pm.request.url.getPath();",
-          "const username = pm.collectionVariables.get('clientId');",
-          "const secret = pm.collectionVariables.get('clientSecret');",
-          "const dateString = new Date().toUTCString();",
+          "var method = pm.request.method;",
+          "var path = pm.request.url.getPath();",
+          "var username = pm.variables.get('mekariApiClientId') || pm.collectionVariables.get('mekariApiClientId');",
+          "var secret = pm.variables.get('mekariApiClientSecret') || pm.collectionVariables.get('mekariApiClientSecret');",
+          "var dateString = new Date().toUTCString();",
           "",
-          "// 1. Calculate SHA-256 Digest of Body",
-          "const body = pm.request.body ? pm.request.body.toString() : '';",
-          "if (body && body.length > 0) {",
-          "    const bodyHash = CryptoJS.SHA256(body);",
-          "    const bodyDigest = 'SHA-256=' + CryptoJS.enc.Base64.stringify(bodyHash);",
-          "    pm.request.headers.upsert({ key: 'Digest', value: bodyDigest });",
+          "var body = pm.request.body ? pm.request.body.toString() : '';",
+          "var bodyDigest = '';",
+          "var bodyLen = Object.keys(body).length;",
+          "if (bodyLen > 0) {",
+          "    var bodyHash = CryptoJS.SHA256(body);",
+          "    bodyDigest = 'SHA-256=' + CryptoJS.enc.Base64.stringify(bodyHash);",
           "}",
           "",
-          "// 2. Build Request Line & HMAC Payload",
-          "const requestLine = method + ' ' + path + ' HTTP/1.1';",
-          "const payload = ['date: ' + dateString, requestLine].join('\\n');",
+          "var requestLine = method + ' ' + path + ' HTTP/1.1';",
+          "var payload = ['date: ' + dateString, requestLine].join('\\n');",
+          "var digest = CryptoJS.HmacSHA256(payload, secret);",
+          "var signature = CryptoJS.enc.Base64.stringify(digest);",
           "",
-          "// 3. Generate HMAC-SHA256 Signature",
-          "const digest = CryptoJS.HmacSHA256(payload, secret);",
-          "const signature = CryptoJS.enc.Base64.stringify(digest);",
+          "var header = 'hmac username=\"' + username + '\", algorithm=\"hmac-sha256\", headers=\"date request-line\", signature=\"' + signature + '\"';",
           "",
-          "// 4. Set Headers",
-          "const authHeader = 'hmac username=\"' + username + '\", algorithm=\"hmac-sha256\", headers=\"date request-line\", signature=\"' + signature + '\"';",
-          "const idempotencyKey = uuid.v4();",
+          "// Generate a UUID for idempotency to prevent duplicate creation",
+          "// You can also customize this with your own invoice reference/ID (e.g. INV0001)",
+          "var idempotencyKey = uuid.v4();",
           "",
-          "pm.request.headers.upsert({ key: 'Authorization', value: authHeader });",
+          "// Set environment variables (official docs format)",
+          "postman.setEnvironmentVariable('hmacAuthHeader', header);",
+          "postman.setEnvironmentVariable('hmacDate', dateString);",
+          "postman.setEnvironmentVariable('hmacDigest', bodyDigest);",
+          "postman.setEnvironmentVariable('idempotencyKey', idempotencyKey);",
+          "",
+          "// Also set headers directly on the request to ensure compatibility",
+          "pm.request.headers.upsert({ key: 'Authorization', value: header });",
           "pm.request.headers.upsert({ key: 'Date', value: dateString });",
-          "pm.request.headers.upsert({ key: 'X-Idempotency-Key', value: idempotencyKey });"
+          "if (bodyDigest) {",
+          "    pm.request.headers.upsert({ key: 'Digest', value: bodyDigest });",
+          "}",
+          "pm.request.headers.upsert({ key: 'X-Idempotency-Key', value: idempotencyKey });",
+          "",
+          "console.log('HMAC Header:', header);",
+          "console.log('Date Header:', dateString);",
+          "console.log('Digest Header:', bodyDigest);",
+          "console.log('X-Idempotency-Key:', idempotencyKey);",
+          "console.log('Request Line:', requestLine);"
         ]
       }
     }
@@ -72,6 +87,26 @@
           {
             "key": "Content-Type",
             "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "{{hmacAuthHeader}}",
+            "description": "Generated by Pre-request Script"
+          },
+          {
+            "key": "Date",
+            "value": "{{hmacDate}}",
+            "description": "Generated by Pre-request Script"
+          },
+          {
+            "key": "Digest",
+            "value": "{{hmacDigest}}",
+            "description": "Generated by Pre-request Script (SHA-256 hash of body)"
+          },
+          {
+            "key": "X-Idempotency-Key",
+            "value": "{{idempotencyKey}}",
+            "description": "Unique key (UUID or Invoice number) to prevent duplicate creation"
           }
         ],
         "body": {
