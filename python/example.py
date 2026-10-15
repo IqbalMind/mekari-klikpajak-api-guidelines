@@ -1,12 +1,11 @@
 """
-Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice (Faktur Pajak Keluaran)
+Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice & Pengganti (Replacement)
 Language: Python 3
 Authentication: HMAC-SHA256
 """
 
 import os
 import json
-import time
 import uuid
 import hmac
 import hashlib
@@ -18,29 +17,14 @@ import urllib.error
 # -----------------------------------------------------------------------------
 # 1. CONFIGURATION
 # -----------------------------------------------------------------------------
-# Obtain these from Mekari Developer Center (MDC):
-# Sandbox: https://sandbox-developers.mekari.com
-# Production: https://developers.mekari.com
 CLIENT_ID = os.getenv("MEKARI_CLIENT_ID", "YOUR_MEKARI_CLIENT_ID")
 CLIENT_SECRET = os.getenv("MEKARI_CLIENT_SECRET", "YOUR_MEKARI_CLIENT_SECRET")
-
-# Base URL:
-# Sandbox: "https://sandbox-api.mekari.com"
-# Production: "https://api.mekari.com"
 BASE_URL = os.getenv("MEKARI_BASE_URL", "https://sandbox-api.mekari.com")
 
 
 def generate_hmac_headers(method: str, path: str, body_string: str, client_id: str, client_secret: str, custom_idempotency_key: str = None) -> dict:
     """
     Generate HMAC-SHA256 authentication and integrity headers for Mekari Klikpajak API.
-    
-    :param method: HTTP method (e.g. 'POST', 'GET', 'PUT', 'DELETE')
-    :param path: URL path without query params (e.g. '/v2/klikpajak/v2/efaktur/out')
-    :param body_string: Raw JSON string of request body (empty string if no body)
-    :param client_id: Mekari API Client ID
-    :param client_secret: Mekari API Client Secret
-    :param custom_idempotency_key: Optional custom reference (e.g. invoice no) to prevent duplicate creation
-    :return: Dictionary containing all required HTTP headers
     """
     # 1. Date in RFC 1123 format (e.g., 'Thu, 15 Oct 2026 06:15:00 GMT')
     now = datetime.now(timezone.utc)
@@ -69,7 +53,10 @@ def generate_hmac_headers(method: str, path: str, body_string: str, client_id: s
         f'signature="{signature_b64}"'
     )
 
-    # 6. X-Idempotency-Key: Use custom invoice ID or auto-generated UUID v4
+    # 6. X-Idempotency-Key:
+    # - Normal: 'INVQBL0001'
+    # - Pengganti 1: 'INVQBL0001-1'
+    # - Pengganti 2: 'INVQBL0001-2'
     idempotency_key = custom_idempotency_key or str(uuid.uuid4())
 
     headers = {
@@ -87,30 +74,65 @@ def generate_hmac_headers(method: str, path: str, body_string: str, client_id: s
     return headers
 
 
-def create_single_tax_invoice():
-    """
-    Create a Single Tax Invoice (Faktur Pajak Keluaran) in CoreTax (CTAS)
-    """
-    path = "/v2/klikpajak/v2/efaktur/out"
-    query_params = "?auto_approval=false&auto_calculate=true"
-    full_url = f"{BASE_URL}{path}{query_params}"
+def send_invoice_request(full_url: str, payload: dict, headers: dict, title: str):
+    body_string = json.dumps(payload)
+    print("==================================================================")
+    print(title)
+    print("==================================================================")
+    print(f"URL: {full_url}")
+    print("Headers:")
+    print(json.dumps(headers, indent=2))
+    print("\nPayload Preview:")
+    print(json.dumps(payload, indent=2))
 
-    current_timestamp = int(time.time() * 1000)
+    print("\nSending request to Mekari Klikpajak API...")
+    req = urllib.request.Request(
+        url=full_url,
+        data=body_string.encode('utf-8'),
+        headers=headers,
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req) as response:
+            status_code = response.getcode()
+            response_body = response.read().decode('utf-8')
+            print(f"\n✅ Success! HTTP Status: {status_code}")
+            try:
+                parsed = json.loads(response_body)
+                print(json.dumps(parsed, indent=2))
+            except json.JSONDecodeError:
+                print(response_body)
+    except urllib.error.HTTPError as e:
+        print(f"\n❌ API Error: HTTP {e.code}")
+        err_body = e.read().decode('utf-8')
+        try:
+            parsed = json.loads(err_body)
+            print(json.dumps(parsed, indent=2))
+        except json.JSONDecodeError:
+            print(err_body)
+    except Exception as e:
+        print(f"\n❌ Network/Request Error: {e}")
+
+
+def create_normal_invoice(invoice_number="INVQBL0001"):
+    path = "/v2/klikpajak/v2/efaktur/out"
+    full_url = f"{BASE_URL}{path}?auto_approval=false&auto_calculate=true"
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    invoice_payload = {
-        "client_reference_id": f"INV-{current_timestamp}",
-        "transaction_detail": "04", # 01=Non-Pemungut, 02=Pemungut Bendahara, 04=DPP Nilai Lain, etc.
+    payload = {
+        "client_reference_id": invoice_number,
+        "transaction_detail": "04",
         "additional_trx_detail": "00",
         "substitution_flag": False,
         "substituted_tax_invoice_id": None,
         "tax_invoice_number_term": "",
-        "description": "Invoice Penjualan Barang & Jasa IT",
+        "description": "Invoice Penjualan Normal",
         "document_date": today_str,
-        "reference": f"REF-{current_timestamp}",
+        "reference": invoice_number,
         "total_tax_base": 10000000,
         "total_other_tax_base": 10000000,
-        "total_vat": 1200000, # CoreTax 12% PPN
+        "total_vat": 1200000,
         "total_stlg": 0,
         "total_price": 10000000,
         "total_discount": 0,
@@ -120,13 +142,13 @@ def create_single_tax_invoice():
         "downpayment_other_tax_base": 0,
         "downpayment_vat": 0,
         "customer": {
-            "npwp": "1091031210912281", # 16-digit NPWP or NIK
+            "npwp": "1091031210912281",
             "id_type": "NPWP",
             "country_code": "IDN",
             "other_id": "",
             "name": "PT Pembeli Sejahtera",
             "address": "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
-            "nitku": "000000", # 6-digit NITKU
+            "nitku": "000000",
             "email": "finance@pembelisejahtera.co.id"
         },
         "items": [
@@ -148,48 +170,74 @@ def create_single_tax_invoice():
         ]
     }
 
-    body_string = json.dumps(invoice_payload)
-    headers = generate_hmac_headers("POST", path, body_string, CLIENT_ID, CLIENT_SECRET)
+    body_string = json.dumps(payload)
+    headers = generate_hmac_headers("POST", path, body_string, CLIENT_ID, CLIENT_SECRET, invoice_number)
+    send_invoice_request(full_url, payload, headers, "CASE 1: Create Normal Tax Invoice (Draft)")
 
-    print("==================================================================")
-    print("Mekari Klikpajak CoreTax: Create Single Tax Invoice (Draft)")
-    print("==================================================================")
-    print(f"URL: {full_url}")
-    print("Headers:")
-    print(json.dumps(headers, indent=2))
-    print("\nPayload Preview:")
-    print(json.dumps(invoice_payload, indent=2))
 
-    print("\nSending request to Mekari Klikpajak API...")
-    req = urllib.request.Request(
-        url=full_url,
-        data=body_string.encode('utf-8'),
-        headers=headers,
-        method="POST"
-    )
+def create_replacement_invoice(original_invoice_id=8219420, base_invoice_number="INVQBL0001", revision=1):
+    path = "/v2/klikpajak/v2/efaktur/out"
+    full_url = f"{BASE_URL}{path}?auto_approval=false&auto_calculate=true"
+    today_str = datetime.now().strftime("%Y-%m-%d")
 
-    try:
-        with urllib.request.urlopen(req) as response:
-            status_code = response.getcode()
-            response_body = response.read().decode('utf-8')
-            print(f"\n✅ Success! HTTP Status: {status_code}")
-            try:
-                parsed = json.loads(response_body)
-                print("Response Body:")
-                print(json.dumps(parsed, indent=2))
-            except json.JSONDecodeError:
-                print("Response Body:", response_body)
-    except urllib.error.HTTPError as e:
-        print(f"\n❌ API Error: HTTP {e.code}")
-        err_body = e.read().decode('utf-8')
-        try:
-            parsed = json.loads(err_body)
-            print(json.dumps(parsed, indent=2))
-        except json.JSONDecodeError:
-            print(err_body)
-    except Exception as e:
-        print(f"\n❌ Network/Request Error: {e}")
+    replacement_key = f"{base_invoice_number}-{revision}" # e.g. "INVQBL0001-1"
+
+    payload = {
+        "client_reference_id": replacement_key,
+        "transaction_detail": "04",
+        "additional_trx_detail": "00",
+        "substitution_flag": True,
+        "substituted_tax_invoice_id": original_invoice_id,
+        "tax_invoice_number_term": "",
+        "description": f"Invoice Penjualan Pengganti ke-{revision}",
+        "document_date": today_str,
+        "reference": replacement_key,
+        "total_tax_base": 12000000,
+        "total_other_tax_base": 12000000,
+        "total_vat": 1440000,
+        "total_stlg": 0,
+        "total_price": 12000000,
+        "total_discount": 0,
+        "downpayment_flag": 0,
+        "downpayment_stlg": 0,
+        "downpayment_tax_base": 0,
+        "downpayment_other_tax_base": 0,
+        "downpayment_vat": 0,
+        "customer": {
+            "npwp": "1091031210912281",
+            "id_type": "NPWP",
+            "country_code": "IDN",
+            "other_id": "",
+            "name": "PT Pembeli Sejahtera",
+            "address": "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+            "nitku": "000000",
+            "email": "finance@pembelisejahtera.co.id"
+        },
+        "items": [
+            {
+                "goods_service": "GOODS",
+                "goods_service_code": "000000",
+                "goods_service_name": "Paket Server Rack 1U (Revisi Spesifikasi)",
+                "unit_price": 12000000,
+                "unit_measurement": "UNIT",
+                "selling_price": 12000000,
+                "quantity": 1,
+                "discount": 0,
+                "tax_base": 12000000,
+                "other_tax_base": 12000000,
+                "vat": 1440000,
+                "stlg_rate": 0,
+                "stlg": 0
+            }
+        ]
+    }
+
+    body_string = json.dumps(payload)
+    headers = generate_hmac_headers("POST", path, body_string, CLIENT_ID, CLIENT_SECRET, replacement_key)
+    send_invoice_request(full_url, payload, headers, f"CASE 2: Create Replacement Tax Invoice (Pengganti #{revision})")
 
 
 if __name__ == "__main__":
-    create_single_tax_invoice()
+    create_normal_invoice("INVQBL0001")
+    print("\n------------------------------------------------------------------\n")
+    create_replacement_invoice(8219420, "INVQBL0001", 1)

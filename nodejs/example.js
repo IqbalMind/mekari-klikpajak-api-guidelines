@@ -1,5 +1,5 @@
 /**
- * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice (Faktur Pajak Keluaran)
+ * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice & Pengganti (Replacement)
  * Language: Node.js (v18+ Native Fetch, zero external dependencies required)
  * Authentication: HMAC-SHA256
  */
@@ -28,7 +28,7 @@ const BASE_URL = process.env.MEKARI_BASE_URL || "https://sandbox-api.mekari.com"
  * @param {string} bodyString - Raw JSON string of the request body (empty string for GET)
  * @param {string} clientId - Mekari API Client ID
  * @param {string} clientSecret - Mekari API Client Secret
- * @param {string} [customIdempotencyKey] - Optional custom reference (e.g. invoice no) to prevent duplicate creation
+ * @param {string} [customIdempotencyKey] - Optional custom reference (e.g. INVQBL0001 or INVQBL0001-1)
  * @returns {object} Object containing all required headers
  */
 function generateHmacHeaders(method, path, bodyString, clientId, clientSecret, customIdempotencyKey = null) {
@@ -56,8 +56,11 @@ function generateHmacHeaders(method, path, bodyString, clientId, clientSecret, c
         digestHeader = `SHA-256=${bodyHash}`;
     }
 
-    // 7. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
-    // Using your unique invoice ID prevents accidental duplicate creation on the server side
+    // 7. X-Idempotency-Key:
+    // - For Normal invoice: "INVQBL0001"
+    // - For Pengganti (revision 1): "INVQBL0001-1"
+    // - For Pengganti (revision 2): "INVQBL0001-2"
+    // Adding the suffix (-1, -2) avoids code 1903 ("Your request has already completed")
     const idempotencyKey = customIdempotencyKey || crypto.randomUUID();
 
     const headers = {
@@ -75,80 +78,18 @@ function generateHmacHeaders(method, path, bodyString, clientId, clientSecret, c
 }
 
 /**
- * Create a Single Tax Invoice (Faktur Pajak Keluaran) in CoreTax (CTAS)
+ * Send request helper
  */
-async function createSingleTaxInvoice() {
-    // Endpoint path (excluding query params for the request line in HMAC signature)
-    const path = "/v2/klikpajak/v2/efaktur/out";
-
-    // Query parameters:
-    // - auto_approval: true = submit immediately to DJP, false = save as draft
-    // - auto_calculate: true = Klikpajak calculates totals/taxes automatically
-    const queryParams = "?auto_approval=false&auto_calculate=true";
-    const fullUrl = `${BASE_URL}${path}${queryParams}`;
-
-    // Sample CoreTax CTAS Single Tax Invoice Payload
-    const invoicePayload = {
-        "client_reference_id": `INV-${Date.now()}`,
-        "transaction_detail": "04", // 01=Non-Pemungut, 02=Pemungut Bendahara, 04=DPP Nilai Lain, etc.
-        "additional_trx_detail": "00",
-        "substitution_flag": false,
-        "substituted_tax_invoice_id": null,
-        "tax_invoice_number_term": "",
-        "description": "Invoice Penjualan Barang & Jasa IT",
-        "document_date": new Date().toISOString().split('T')[0], // YYYY-MM-DD
-        "reference": `REF-${Date.now()}`,
-        "total_tax_base": 10000000,
-        "total_other_tax_base": 10000000,
-        "total_vat": 1200000, // CoreTax 12% PPN
-        "total_stlg": 0,
-        "total_price": 10000000,
-        "total_discount": 0,
-        "downpayment_flag": 0,
-        "downpayment_stlg": 0,
-        "downpayment_tax_base": 0,
-        "downpayment_other_tax_base": 0,
-        "downpayment_vat": 0,
-        "customer": {
-            "npwp": "1091031210912281", // 16-digit NPWP or NIK
-            "id_type": "NPWP",
-            "country_code": "IDN",
-            "other_id": "",
-            "name": "PT Pembeli Sejahtera",
-            "address": "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
-            "nitku": "000000", // 6-digit NITKU
-            "email": "finance@pembelisejahtera.co.id"
-        },
-        "items": [
-            {
-                "goods_service": "GOODS",
-                "goods_service_code": "000000",
-                "goods_service_name": "Paket Server Rack 1U",
-                "unit_price": 10000000,
-                "unit_measurement": "UNIT",
-                "selling_price": 10000000,
-                "quantity": 1,
-                "discount": 0,
-                "tax_base": 10000000,
-                "other_tax_base": 10000000,
-                "vat": 1200000,
-                "stlg_rate": 0,
-                "stlg": 0
-            }
-        ]
-    };
-
-    const bodyString = JSON.stringify(invoicePayload);
-    const headers = generateHmacHeaders('POST', path, bodyString, CLIENT_ID, CLIENT_SECRET);
-
+async function sendInvoiceRequest(fullUrl, payload, headers, title) {
+    const bodyString = JSON.stringify(payload);
     console.log("==================================================================");
-    console.log("Mekari Klikpajak CoreTax: Create Single Tax Invoice (Draft)");
+    console.log(title);
     console.log("==================================================================");
     console.log(`URL: ${fullUrl}`);
     console.log("Headers:");
     console.log(JSON.stringify(headers, null, 2));
     console.log("\nPayload Preview:");
-    console.log(JSON.stringify(invoicePayload, null, 2));
+    console.log(JSON.stringify(payload, null, 2));
 
     try {
         console.log("\nSending request to Mekari Klikpajak API...");
@@ -181,5 +122,146 @@ async function createSingleTaxInvoice() {
     }
 }
 
-// Execute the example
-createSingleTaxInvoice();
+/**
+ * CASE 1: Create Single Tax Invoice (Faktur Pajak Normal)
+ */
+async function createNormalTaxInvoice(invoiceNumber = "INVQBL0001") {
+    const path = "/v2/klikpajak/v2/efaktur/out";
+    const fullUrl = `${BASE_URL}${path}?auto_approval=false&auto_calculate=true`;
+
+    const invoicePayload = {
+        "client_reference_id": invoiceNumber,
+        "transaction_detail": "04",
+        "additional_trx_detail": "00",
+        "substitution_flag": false,
+        "substituted_tax_invoice_id": null,
+        "tax_invoice_number_term": "",
+        "description": "Invoice Penjualan Normal",
+        "document_date": new Date().toISOString().split('T')[0],
+        "reference": invoiceNumber,
+        "total_tax_base": 10000000,
+        "total_other_tax_base": 10000000,
+        "total_vat": 1200000,
+        "total_stlg": 0,
+        "total_price": 10000000,
+        "total_discount": 0,
+        "downpayment_flag": 0,
+        "downpayment_stlg": 0,
+        "downpayment_tax_base": 0,
+        "downpayment_other_tax_base": 0,
+        "downpayment_vat": 0,
+        "customer": {
+            "npwp": "1091031210912281",
+            "id_type": "NPWP",
+            "country_code": "IDN",
+            "other_id": "",
+            "name": "PT Pembeli Sejahtera",
+            "address": "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+            "nitku": "000000",
+            "email": "finance@pembelisejahtera.co.id"
+        },
+        "items": [
+            {
+                "goods_service": "GOODS",
+                "goods_service_code": "000000",
+                "goods_service_name": "Paket Server Rack 1U",
+                "unit_price": 10000000,
+                "unit_measurement": "UNIT",
+                "selling_price": 10000000,
+                "quantity": 1,
+                "discount": 0,
+                "tax_base": 10000000,
+                "other_tax_base": 10000000,
+                "vat": 1200000,
+                "stlg_rate": 0,
+                "stlg": 0
+            }
+        ]
+    };
+
+    const bodyString = JSON.stringify(invoicePayload);
+    // Use invoiceNumber directly as X-Idempotency-Key
+    const headers = generateHmacHeaders('POST', path, bodyString, CLIENT_ID, CLIENT_SECRET, invoiceNumber);
+
+    return await sendInvoiceRequest(fullUrl, invoicePayload, headers, "CASE 1: Create Normal Tax Invoice (Draft)");
+}
+
+/**
+ * CASE 2: Create Replacement Tax Invoice (Faktur Pajak Pengganti)
+ * Suffix convention: -1, -2, -3...
+ * e.g. INVQBL0001-1 for 1st replacement, INVQBL0001-2 for 2nd replacement.
+ */
+async function createReplacementTaxInvoice(originalInvoiceId = 8219420, baseInvoiceNumber = "INVQBL0001", revision = 1) {
+    const path = "/v2/klikpajak/v2/efaktur/out";
+    const fullUrl = `${BASE_URL}${path}?auto_approval=false&auto_calculate=true`;
+
+    const replacementKey = `${baseInvoiceNumber}-${revision}`; // e.g. "INVQBL0001-1"
+
+    const replacementPayload = {
+        "client_reference_id": replacementKey,
+        "transaction_detail": "04",
+        "additional_trx_detail": "00",
+        "substitution_flag": true,
+        "substituted_tax_invoice_id": originalInvoiceId, // ID of original invoice being replaced
+        "tax_invoice_number_term": "",
+        "description": `Invoice Penjualan Pengganti ke-${revision}`,
+        "document_date": new Date().toISOString().split('T')[0],
+        "reference": replacementKey,
+        "total_tax_base": 12000000, // Updated tax base
+        "total_other_tax_base": 12000000,
+        "total_vat": 1440000, // Updated 12% VAT
+        "total_stlg": 0,
+        "total_price": 12000000,
+        "total_discount": 0,
+        "downpayment_flag": 0,
+        "downpayment_stlg": 0,
+        "downpayment_tax_base": 0,
+        "downpayment_other_tax_base": 0,
+        "downpayment_vat": 0,
+        "customer": {
+            "npwp": "1091031210912281",
+            "id_type": "NPWP",
+            "country_code": "IDN",
+            "other_id": "",
+            "name": "PT Pembeli Sejahtera",
+            "address": "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+            "nitku": "000000",
+            "email": "finance@pembelisejahtera.co.id"
+        },
+        "items": [
+            {
+                "goods_service": "GOODS",
+                "goods_service_code": "000000",
+                "goods_service_name": "Paket Server Rack 1U (Revisi Spesifikasi)",
+                "unit_price": 12000000,
+                "unit_measurement": "UNIT",
+                "selling_price": 12000000,
+                "quantity": 1,
+                "discount": 0,
+                "tax_base": 12000000,
+                "other_tax_base": 12000000,
+                "vat": 1440000,
+                "stlg_rate": 0,
+                "stlg": 0
+            }
+        ]
+    };
+
+    const bodyString = JSON.stringify(replacementPayload);
+    // Use replacementKey (INVQBL0001-1) as X-Idempotency-Key
+    const headers = generateHmacHeaders('POST', path, bodyString, CLIENT_ID, CLIENT_SECRET, replacementKey);
+
+    return await sendInvoiceRequest(fullUrl, replacementPayload, headers, `CASE 2: Create Replacement Tax Invoice (Pengganti #${revision})`);
+}
+
+async function run() {
+    // 1. Create Normal Invoice (INVQBL0001)
+    await createNormalTaxInvoice("INVQBL0001");
+
+    console.log("\n------------------------------------------------------------------\n");
+
+    // 2. Create Pengganti 1 (INVQBL0001-1)
+    await createReplacementTaxInvoice(8219420, "INVQBL0001", 1);
+}
+
+run();

@@ -110,6 +110,23 @@ If you accidentally retry or resend a request with the **same** `X-Idempotency-K
 }
 ```
 
+### 🔄 Handling Faktur Pajak Pengganti (Replacement Invoices with `-1`, `-2`, ++)
+
+When creating a replacement invoice (**Faktur Pajak Pengganti**), you must provide a **new** `X-Idempotency-Key`. Reusing the original invoice's key will result in error `1903` ("Your request has already completed").
+
+The recommended and battle-tested pattern is appending a revision suffix (`-1`, `-2`, etc.):
+
+| Invoice Type | `X-Idempotency-Key` & `client_reference_id` | `substitution_flag` | `substituted_tax_invoice_id` | Description |
+|---|---|---|---|---|
+| **Normal** | `INVQBL0001` | `false` | `null` | Original tax invoice |
+| **Pengganti ke-1** | `INVQBL0001-1` | `true` | `8219420` | 1st replacement invoice |
+| **Pengganti ke-2** | `INVQBL0001-2` | `true` | `8219420` | 2nd replacement (if further amendments needed) |
+| **Pengganti ke-N** | `INVQBL0001-N` | `true` | `8219420` | N-th replacement |
+
+**Benefits**:
+1. **Passes Idempotency Check**: Avoids error code `1903` while maintaining duplicate protection per revision.
+2. **Audit Trail**: Clearly traces all replacement revisions back to the original invoice root (`INVQBL0001`) across your database, ERP, and Klikpajak dashboard.
+
 ### 📜 Official Postman Pre-request Script
 
 Here is the reference script from the official documentation and slides that sets all headers including `X-Idempotency-Key`:

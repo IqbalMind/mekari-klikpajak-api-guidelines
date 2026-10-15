@@ -1,6 +1,6 @@
 <?php
 /**
- * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice (Faktur Pajak Keluaran)
+ * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice & Pengganti (Replacement)
  * Language: PHP (7.4+, 8.x)
  * Authentication: HMAC-SHA256
  */
@@ -8,15 +8,8 @@
 // -----------------------------------------------------------------------------
 // 1. CONFIGURATION
 // -----------------------------------------------------------------------------
-// Obtain these from Mekari Developer Center (MDC):
-// Sandbox: https://sandbox-developers.mekari.com
-// Production: https://developers.mekari.com
 $clientId = getenv('MEKARI_CLIENT_ID') ?: 'YOUR_MEKARI_CLIENT_ID';
 $clientSecret = getenv('MEKARI_CLIENT_SECRET') ?: 'YOUR_MEKARI_CLIENT_SECRET';
-
-// Base URL:
-// Sandbox: "https://sandbox-api.mekari.com"
-// Production: "https://api.mekari.com"
 $baseUrl = getenv('MEKARI_BASE_URL') ?: 'https://sandbox-api.mekari.com';
 
 /**
@@ -24,20 +17,13 @@ $baseUrl = getenv('MEKARI_BASE_URL') ?: 'https://sandbox-api.mekari.com';
  */
 function generateUuidV4(): string {
     $data = random_bytes(16);
-    $data[6] = chr(ord($data[6]) & 0x0f | 0x40); // set version to 0100
-    $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
+    $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+    $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
 /**
  * Generate HMAC-SHA256 authentication and integrity headers for Mekari Klikpajak API.
- * 
- * @param string $method HTTP method
- * @param string $path URL path without query params
- * @param string $bodyString Raw JSON body string
- * @param string $clientId Mekari Client ID
- * @param string $clientSecret Mekari Client Secret
- * @param string|null $customIdempotencyKey Optional custom reference (e.g. invoice no) to prevent duplicate creation
  */
 function generateHmacHeaders(string $method, string $path, string $bodyString, string $clientId, string $clientSecret, ?string $customIdempotencyKey = null): array {
     // 1. Date header in RFC 1123 / UTC format
@@ -60,7 +46,7 @@ function generateHmacHeaders(string $method, string $path, string $bodyString, s
         $signature
     );
 
-    // 6. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
+    // 6. X-Idempotency-Key (INVQBL0001 for normal, INVQBL0001-1 for replacement)
     $idempotencyKey = $customIdempotencyKey ?: generateUuidV4();
 
     // 7. Build headers array
@@ -71,7 +57,7 @@ function generateHmacHeaders(string $method, string $path, string $bodyString, s
         'X-Idempotency-Key: ' . $idempotencyKey
     ];
 
-    // 7. Digest header (SHA-256 hash of the request body)
+    // 8. Digest header (SHA-256 hash of the request body)
     if (!empty($bodyString)) {
         $bodyDigest = 'SHA-256=' . base64_encode(hash('sha256', $bodyString, true));
         $headers[] = 'Digest: ' . $bodyDigest;
@@ -81,75 +67,17 @@ function generateHmacHeaders(string $method, string $path, string $bodyString, s
 }
 
 /**
- * Create a Single Tax Invoice (Faktur Pajak Keluaran) in CoreTax (CTAS)
+ * Send request helper
  */
-function createSingleTaxInvoice(string $baseUrl, string $clientId, string $clientSecret) {
-    $path = "/v2/klikpajak/v2/efaktur/out";
-    $queryParams = "?auto_approval=false&auto_calculate=true";
-    $fullUrl = $baseUrl . $path . $queryParams;
-
-    $timestamp = round(microtime(true) * 1000);
-    $today = date('Y-m-d');
-
-    $invoicePayload = [
-        "client_reference_id" => "INV-" . $timestamp,
-        "transaction_detail" => "04", // 01=Non-Pemungut, 02=Pemungut Bendahara, 04=DPP Nilai Lain, etc.
-        "additional_trx_detail" => "00",
-        "substitution_flag" => false,
-        "substituted_tax_invoice_id" => null,
-        "tax_invoice_number_term" => "",
-        "description" => "Invoice Penjualan Barang & Jasa IT",
-        "document_date" => $today,
-        "reference" => "REF-" . $timestamp,
-        "total_tax_base" => 10000000,
-        "total_other_tax_base" => 10000000,
-        "total_vat" => 1200000, // CoreTax 12% PPN
-        "total_stlg" => 0,
-        "total_price" => 10000000,
-        "total_discount" => 0,
-        "downpayment_flag" => 0,
-        "downpayment_stlg" => 0,
-        "downpayment_tax_base" => 0,
-        "downpayment_other_tax_base" => 0,
-        "downpayment_vat" => 0,
-        "customer" => [
-            "npwp" => "1091031210912281", // 16-digit NPWP or NIK
-            "id_type" => "NPWP",
-            "country_code" => "IDN",
-            "other_id" => "",
-            "name" => "PT Pembeli Sejahtera",
-            "address" => "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
-            "nitku" => "000000", // 6-digit NITKU
-            "email" => "finance@pembelisejahtera.co.id"
-        ],
-        "items" => [
-            [
-                "goods_service" => "GOODS",
-                "goods_service_code" => "000000",
-                "goods_service_name" => "Paket Server Rack 1U",
-                "unit_price" => 10000000,
-                "unit_measurement" => "UNIT",
-                "selling_price" => 10000000,
-                "quantity" => 1,
-                "discount" => 0,
-                "tax_base" => 10000000,
-                "other_tax_base" => 10000000,
-                "vat" => 1200000,
-                "stlg_rate" => 0,
-                "stlg" => 0
-            ]
-        ]
-    ];
-
-    $bodyString = json_encode($invoicePayload, JSON_UNESCAPED_SLASHES);
-    $headers = generateHmacHeaders('POST', $path, $bodyString, $clientId, $clientSecret);
+function sendInvoiceRequest(string $fullUrl, array $payload, array $headers, string $title) {
+    $bodyString = json_encode($payload, JSON_UNESCAPED_SLASHES);
 
     echo "==================================================================\n";
-    echo "Mekari Klikpajak CoreTax: Create Single Tax Invoice (Draft)\n";
+    echo $title . "\n";
     echo "==================================================================\n";
     echo "URL: " . $fullUrl . "\n";
     echo "Headers:\n" . print_r($headers, true) . "\n";
-    echo "Payload Preview:\n" . json_encode($invoicePayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
+    echo "Payload Preview:\n" . json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
 
     echo "Sending request to Mekari Klikpajak API...\n";
 
@@ -178,5 +106,133 @@ function createSingleTaxInvoice(string $baseUrl, string $clientId, string $clien
     echo "Response Body:\n" . $response . "\n";
 }
 
-// Run the script
-createSingleTaxInvoice($baseUrl, $clientId, $clientSecret);
+/**
+ * CASE 1: Create Normal Single Tax Invoice
+ */
+function createNormalInvoice(string $baseUrl, string $clientId, string $clientSecret, string $invoiceNumber = "INVQBL0001") {
+    $path = "/v2/klikpajak/v2/efaktur/out";
+    $fullUrl = $baseUrl . $path . "?auto_approval=false&auto_calculate=true";
+
+    $payload = [
+        "client_reference_id" => $invoiceNumber,
+        "transaction_detail" => "04",
+        "additional_trx_detail" => "00",
+        "substitution_flag" => false,
+        "substituted_tax_invoice_id" => null,
+        "tax_invoice_number_term" => "",
+        "description" => "Invoice Penjualan Normal",
+        "document_date" => date('Y-m-d'),
+        "reference" => $invoiceNumber,
+        "total_tax_base" => 10000000,
+        "total_other_tax_base" => 10000000,
+        "total_vat" => 1200000,
+        "total_stlg" => 0,
+        "total_price" => 10000000,
+        "total_discount" => 0,
+        "downpayment_flag" => 0,
+        "downpayment_stlg" => 0,
+        "downpayment_tax_base" => 0,
+        "downpayment_other_tax_base" => 0,
+        "downpayment_vat" => 0,
+        "customer" => [
+            "npwp" => "1091031210912281",
+            "id_type" => "NPWP",
+            "country_code" => "IDN",
+            "other_id" => "",
+            "name" => "PT Pembeli Sejahtera",
+            "address" => "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+            "nitku" => "000000",
+            "email" => "finance@pembelisejahtera.co.id"
+        ],
+        "items" => [
+            [
+                "goods_service" => "GOODS",
+                "goods_service_code" => "000000",
+                "goods_service_name" => "Paket Server Rack 1U",
+                "unit_price" => 10000000,
+                "unit_measurement" => "UNIT",
+                "selling_price" => 10000000,
+                "quantity" => 1,
+                "discount" => 0,
+                "tax_base" => 10000000,
+                "other_tax_base" => 10000000,
+                "vat" => 1200000,
+                "stlg_rate" => 0,
+                "stlg" => 0
+            ]
+        ]
+    ];
+
+    $bodyString = json_encode($payload, JSON_UNESCAPED_SLASHES);
+    $headers = generateHmacHeaders('POST', $path, $bodyString, $clientId, $clientSecret, $invoiceNumber);
+    sendInvoiceRequest($fullUrl, $payload, $headers, "CASE 1: Create Normal Tax Invoice (Draft)");
+}
+
+/**
+ * CASE 2: Create Replacement Single Tax Invoice (Pengganti)
+ */
+function createReplacementInvoice(string $baseUrl, string $clientId, string $clientSecret, int $originalInvoiceId = 8219420, string $baseInvoiceNumber = "INVQBL0001", int $revision = 1) {
+    $path = "/v2/klikpajak/v2/efaktur/out";
+    $fullUrl = $baseUrl . $path . "?auto_approval=false&auto_calculate=true";
+
+    $replacementKey = $baseInvoiceNumber . "-" . $revision; // e.g. "INVQBL0001-1"
+
+    $payload = [
+        "client_reference_id" => $replacementKey,
+        "transaction_detail" => "04",
+        "additional_trx_detail" => "00",
+        "substitution_flag" => true,
+        "substituted_tax_invoice_id" => $originalInvoiceId,
+        "tax_invoice_number_term" => "",
+        "description" => "Invoice Penjualan Pengganti ke-" . $revision,
+        "document_date" => date('Y-m-d'),
+        "reference" => $replacementKey,
+        "total_tax_base" => 12000000,
+        "total_other_tax_base" => 12000000,
+        "total_vat" => 1440000,
+        "total_stlg" => 0,
+        "total_price" => 12000000,
+        "total_discount" => 0,
+        "downpayment_flag" => 0,
+        "downpayment_stlg" => 0,
+        "downpayment_tax_base" => 0,
+        "downpayment_other_tax_base" => 0,
+        "downpayment_vat" => 0,
+        "customer" => [
+            "npwp" => "1091031210912281",
+            "id_type" => "NPWP",
+            "country_code" => "IDN",
+            "other_id" => "",
+            "name" => "PT Pembeli Sejahtera",
+            "address" => "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+            "nitku" => "000000",
+            "email" => "finance@pembelisejahtera.co.id"
+        ],
+        "items" => [
+            [
+                "goods_service" => "GOODS",
+                "goods_service_code" => "000000",
+                "goods_service_name" => "Paket Server Rack 1U (Revisi Spesifikasi)",
+                "unit_price" => 12000000,
+                "unit_measurement" => "UNIT",
+                "selling_price" => 12000000,
+                "quantity" => 1,
+                "discount" => 0,
+                "tax_base" => 12000000,
+                "other_tax_base" => 12000000,
+                "vat" => 1440000,
+                "stlg_rate" => 0,
+                "stlg" => 0
+            ]
+        ]
+    ];
+
+    $bodyString = json_encode($payload, JSON_UNESCAPED_SLASHES);
+    $headers = generateHmacHeaders('POST', $path, $bodyString, $clientId, $clientSecret, $replacementKey);
+    sendInvoiceRequest($fullUrl, $payload, $headers, "CASE 2: Create Replacement Tax Invoice (Pengganti #" . $revision . ")");
+}
+
+// Execute both cases
+createNormalInvoice($baseUrl, $clientId, $clientSecret, "INVQBL0001");
+echo "\n------------------------------------------------------------------\n\n";
+createReplacementInvoice($baseUrl, $clientId, $clientSecret, 8219420, "INVQBL0001", 1);

@@ -1,7 +1,7 @@
 package main
 
 /**
- * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice (Faktur Pajak Keluaran)
+ * Mekari Klikpajak CoreTax (CTAS) - Create Single Tax Invoice & Pengganti (Replacement)
  * Language: Go 1.21+ (Pure standard library, zero external dependencies)
  * Authentication: HMAC-SHA256
  */
@@ -49,7 +49,7 @@ func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, client
 	// 5. Authorization header
 	authHeader := fmt.Sprintf(`hmac username="%s", algorithm="hmac-sha256", headers="date request-line", signature="%s"`, clientID, signature)
 
-	// 6. X-Idempotency-Key: Use your invoice reference or an auto-generated UUID v4
+	// 6. X-Idempotency-Key: Use your invoice reference or -1 suffix for replacement
 	idempotencyKey := customIdempotencyKey
 	if idempotencyKey == "" {
 		idempotencyKey = generateUUIDv4()
@@ -62,7 +62,7 @@ func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, client
 		"X-Idempotency-Key": idempotencyKey,
 	}
 
-	// 6. Digest header (SHA-256 hash of body)
+	// 7. Digest header (SHA-256 hash of body)
 	if len(bodyBytes) > 0 {
 		h := sha256.New()
 		h.Write(bodyBytes)
@@ -73,93 +73,20 @@ func generateHmacHeaders(method, path string, bodyBytes []byte, clientID, client
 	return headers
 }
 
-func main() {
-	clientID := os.Getenv("MEKARI_CLIENT_ID")
-	if clientID == "" {
-		clientID = "YOUR_MEKARI_CLIENT_ID"
-	}
-
-	clientSecret := os.Getenv("MEKARI_CLIENT_SECRET")
-	if clientSecret == "" {
-		clientSecret = "YOUR_MEKARI_CLIENT_SECRET"
-	}
-
-	baseURL := os.Getenv("MEKARI_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://sandbox-api.mekari.com"
-	}
-
-	path := "/v2/klikpajak/v2/efaktur/out"
-	queryParams := "?auto_approval=false&auto_calculate=true"
-	fullURL := baseURL + path + queryParams
-
-	now := time.Now()
-	invoicePayload := map[string]interface{}{
-		"client_reference_id":        fmt.Sprintf("INV-%d", now.UnixMilli()),
-		"transaction_detail":         "04", // 01=Non-Pemungut, 02=Pemungut Bendahara, 04=DPP Nilai Lain
-		"additional_trx_detail":      "00",
-		"substitution_flag":          false,
-		"substituted_tax_invoice_id": nil,
-		"tax_invoice_number_term":    "",
-		"description":                "Invoice Penjualan Barang & Jasa IT",
-		"document_date":              now.Format("2006-01-02"),
-		"reference":                  fmt.Sprintf("REF-%d", now.UnixMilli()),
-		"total_tax_base":             10000000,
-		"total_other_tax_base":       10000000,
-		"total_vat":                  1200000, // CoreTax 12% PPN
-		"total_stlg":                 0,
-		"total_price":                10000000,
-		"total_discount":             0,
-		"downpayment_flag":           0,
-		"downpayment_stlg":           0,
-		"downpayment_tax_base":       0,
-		"downpayment_other_tax_base": 0,
-		"downpayment_vat":            0,
-		"customer": map[string]interface{}{
-			"npwp":         "1091031210912281", // 16-digit NPWP or NIK
-			"id_type":      "NPWP",
-			"country_code": "IDN",
-			"other_id":     "",
-			"name":         "PT Pembeli Sejahtera",
-			"address":      "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
-			"nitku":        "000000", // 6-digit NITKU
-			"email":        "finance@pembelisejahtera.co.id",
-		},
-		"items": []map[string]interface{}{
-			{
-				"goods_service":      "GOODS",
-				"goods_service_code": "000000",
-				"goods_service_name": "Paket Server Rack 1U",
-				"unit_price":         10000000,
-				"unit_measurement":   "UNIT",
-				"selling_price":      10000000,
-				"quantity":           1,
-				"discount":           0,
-				"tax_base":           10000000,
-				"other_tax_base":     10000000,
-				"vat":                1200000,
-				"stlg_rate":          0,
-				"stlg":               0,
-			},
-		},
-	}
-
-	bodyBytes, err := json.Marshal(invoicePayload)
+func sendInvoiceRequest(fullURL string, payload map[string]interface{}, headers map[string]string, title string) {
+	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		fmt.Printf("Error marshaling payload: %v\n", err)
 		return
 	}
 
-	// Pass empty string for auto-generated UUID v4, or pass custom invoice ID (e.g. "INV-001") to prevent duplicate creation
-	headers := generateHmacHeaders("POST", path, bodyBytes, clientID, clientSecret, "")
-
 	fmt.Println("==================================================================")
-	fmt.Println("Mekari Klikpajak CoreTax: Create Single Tax Invoice (Draft)")
+	fmt.Println(title)
 	fmt.Println("==================================================================")
 	fmt.Printf("URL: %s\n", fullURL)
 	prettyHeaders, _ := json.MarshalIndent(headers, "", "  ")
 	fmt.Printf("Headers:\n%s\n", string(prettyHeaders))
-	prettyPayload, _ := json.MarshalIndent(invoicePayload, "", "  ")
+	prettyPayload, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Printf("\nPayload Preview:\n%s\n\n", string(prettyPayload))
 
 	fmt.Println("Sending request to Mekari Klikpajak API...")
@@ -189,4 +116,141 @@ func main() {
 		fmt.Printf("\n❌ API Error: HTTP %d\n", resp.StatusCode)
 	}
 	fmt.Printf("Response Body:\n%s\n", string(respBody))
+}
+
+func main() {
+	clientID := os.Getenv("MEKARI_CLIENT_ID")
+	if clientID == "" {
+		clientID = "YOUR_MEKARI_CLIENT_ID"
+	}
+
+	clientSecret := os.Getenv("MEKARI_CLIENT_SECRET")
+	if clientSecret == "" {
+		clientSecret = "YOUR_MEKARI_CLIENT_SECRET"
+	}
+
+	baseURL := os.Getenv("MEKARI_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://sandbox-api.mekari.com"
+	}
+
+	path := "/v2/klikpajak/v2/efaktur/out"
+	fullURL := baseURL + path + "?auto_approval=false&auto_calculate=true"
+	today := time.Now().Format("2006-01-02")
+
+	// --------------------------------------------------------------------------
+	// CASE 1: Create Normal Invoice (INVQBL0001)
+	// --------------------------------------------------------------------------
+	normalInvoiceNo := "INVQBL0001"
+	normalPayload := map[string]interface{}{
+		"client_reference_id":        normalInvoiceNo,
+		"transaction_detail":         "04",
+		"additional_trx_detail":      "00",
+		"substitution_flag":          false,
+		"substituted_tax_invoice_id": nil,
+		"tax_invoice_number_term":    "",
+		"description":                "Invoice Penjualan Normal",
+		"document_date":              today,
+		"reference":                  normalInvoiceNo,
+		"total_tax_base":             10000000,
+		"total_other_tax_base":       10000000,
+		"total_vat":                  1200000,
+		"total_stlg":                 0,
+		"total_price":                10000000,
+		"total_discount":             0,
+		"downpayment_flag":           0,
+		"downpayment_stlg":           0,
+		"downpayment_tax_base":       0,
+		"downpayment_other_tax_base": 0,
+		"downpayment_vat":            0,
+		"customer": map[string]interface{}{
+			"npwp":         "1091031210912281",
+			"id_type":      "NPWP",
+			"country_code": "IDN",
+			"other_id":     "",
+			"name":         "PT Pembeli Sejahtera",
+			"address":      "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+			"nitku":        "000000",
+			"email":        "finance@pembelisejahtera.co.id",
+		},
+		"items": []map[string]interface{}{
+			{
+				"goods_service":      "GOODS",
+				"goods_service_code": "000000",
+				"goods_service_name": "Paket Server Rack 1U",
+				"unit_price":         10000000,
+				"unit_measurement":   "UNIT",
+				"selling_price":      10000000,
+				"quantity":           1,
+				"discount":           0,
+				"tax_base":           10000000,
+				"other_tax_base":     10000000,
+				"vat":                1200000,
+				"stlg_rate":          0,
+				"stlg":               0,
+			},
+		},
+	}
+	normalBytes, _ := json.Marshal(normalPayload)
+	normalHeaders := generateHmacHeaders("POST", path, normalBytes, clientID, clientSecret, normalInvoiceNo)
+	sendInvoiceRequest(fullURL, normalPayload, normalHeaders, "CASE 1: Create Normal Tax Invoice (Draft)")
+
+	fmt.Println("\n------------------------------------------------------------------\n")
+
+	// --------------------------------------------------------------------------
+	// CASE 2: Create Pengganti 1 (INVQBL0001-1)
+	// --------------------------------------------------------------------------
+	replacementKey := "INVQBL0001-1"
+	replacementPayload := map[string]interface{}{
+		"client_reference_id":        replacementKey,
+		"transaction_detail":         "04",
+		"additional_trx_detail":      "00",
+		"substitution_flag":          true,
+		"substituted_tax_invoice_id": 8219420,
+		"tax_invoice_number_term":    "",
+		"description":                "Invoice Penjualan Pengganti ke-1",
+		"document_date":              today,
+		"reference":                  replacementKey,
+		"total_tax_base":             12000000,
+		"total_other_tax_base":       12000000,
+		"total_vat":                  1440000,
+		"total_stlg":                 0,
+		"total_price":                12000000,
+		"total_discount":             0,
+		"downpayment_flag":           0,
+		"downpayment_stlg":           0,
+		"downpayment_tax_base":       0,
+		"downpayment_other_tax_base": 0,
+		"downpayment_vat":            0,
+		"customer": map[string]interface{}{
+			"npwp":         "1091031210912281",
+			"id_type":      "NPWP",
+			"country_code": "IDN",
+			"other_id":     "",
+			"name":         "PT Pembeli Sejahtera",
+			"address":      "Jalan Jend. Sudirman Kav 21, Karet Semanggi, Jakarta Selatan",
+			"nitku":        "000000",
+			"email":        "finance@pembelisejahtera.co.id",
+		},
+		"items": []map[string]interface{}{
+			{
+				"goods_service":      "GOODS",
+				"goods_service_code": "000000",
+				"goods_service_name": "Paket Server Rack 1U (Revisi Spesifikasi)",
+				"unit_price":         12000000,
+				"unit_measurement":   "UNIT",
+				"selling_price":      12000000,
+				"quantity":           1,
+				"discount":           0,
+				"tax_base":           12000000,
+				"other_tax_base":     12000000,
+				"vat":                1440000,
+				"stlg_rate":          0,
+				"stlg":               0,
+			},
+		},
+	}
+	replacementBytes, _ := json.Marshal(replacementPayload)
+	replacementHeaders := generateHmacHeaders("POST", path, replacementBytes, clientID, clientSecret, replacementKey)
+	sendInvoiceRequest(fullURL, replacementPayload, replacementHeaders, "CASE 2: Create Replacement Tax Invoice (Pengganti #1)")
 }
